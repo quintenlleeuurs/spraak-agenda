@@ -2,11 +2,10 @@
 // type (AI-03), title (AI-01), date/time (AI-02), summary (AI-04) and
 // whether the user should check the date (AI-06).
 
+import type { ItemType } from "@/lib/db/types";
 import { parseDutchDateTime } from "@/lib/parser/dutch-date";
 import { cleanTranscript } from "./cleanup";
 import { applyCorrections } from "./corrections";
-
-export type ItemType = "afspraak" | "todo" | "idee" | "persoonlijk";
 
 export type Analysis = {
   title: string;

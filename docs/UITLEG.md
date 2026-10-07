@@ -7,7 +7,7 @@ Dit document legt **elk bestand** van de Spraak-agenda uit: per regelbereik wat 
 > - Requirement-ID's zoals `AI-02` of `SEC-01` verwijzen naar [requirements.md](../requirements.md).
 > - De code en het commentaar in de code zijn in het Engels (afspraak in CLAUDE.md); alles in de app en in dit document is Nederlands.
 
-**Laatst bijgewerkt:** fase 1, stap 1 (datumherkenning, correctielijst, titel en type).
+**Laatst bijgewerkt:** fase 1, stap 2 (versleutelde opslag en pincode).
 
 ---
 
@@ -22,6 +22,7 @@ Dit document legt **elk bestand** van de Spraak-agenda uit: per regelbereik wat 
    - [lib/classify/cleanup.ts](#libclassifycleanupts)
    - [lib/classify/classify.ts](#libclassifyclassifyts)
    - [De tests (*.test.ts)](#de-tests-testts)
+   - [3b. Opslag en versleuteling](#3b-opslag-en-versleuteling): types, crypto, vault, db, repository
 4. [Spraak → tekst (Whisper)](#4-spraak--tekst-whisper)
    - [lib/audio/recorder.ts](#libaudiorecorderts)
    - [workers/whisper.worker.ts](#workerswhisperworkerts)
@@ -165,34 +166,115 @@ Alles gebeurt **op de iPhone**. Er gaat geen enkel gegeven naar een server (SEC-
 
 | Regels | Wat gebeurt er | Waarom |
 |---|---|---|
-| 9 | De vier types: afspraak, todo, idee, persoonlijk. | Uit §5 van de requirements. |
-| 11–18 | `Analysis`: de vorm van het resultaat. | Eén vaste vorm, zodat de rest van de app weet wat hij krijgt. |
-| 22 | Woorden die op een **idee** wijzen ("misschien", "zou leuk zijn"). | AI-03. |
-| 24–32 | Woorden die op een **afspraak** wijzen, met de titel die erbij hoort. | Woord en titel staan op één plek, dus als je een woord toevoegt, heb je meteen de titel. |
-| 34–35 | Woorden die met "controle" samen één woord worden. | "Tandarts" + "controle" → "Tandartscontrole" (AI-01). |
-| 37–41 | Woorden die op een **to-do** wijzen ("moet", "kopen", "bellen"). | AI-03. |
-| 45 | Maximale titellengte: 40 tekens. | AI-01. |
-| 47–49 | Beginwoorden zonder inhoud ("ik moet", "niet vergeten", "idee:"). | "Ik moet brood kopen" → titel "Brood kopen". |
-| 51–61 | `capitalize` en `truncate`: hoofdletter, en inkorten zonder een woord doormidden te knippen. | Een titel als "Misschien zou het leuk zijn om naar Ro…" leest slecht. |
-| 63–82 | `makeTitle` in vier stappen: (1) samenstelling met "controle", (2) "eten met Sanne", (3) een afspraakwoord, (4) anders: het eerste deel van de zin, zonder datumwoorden en beginwoorden. | Van specifiek naar algemeen: de eerste regel die past, wint. |
-| 86–89 | `analyzeTranscript` begint: correctielijst toepassen en datum zoeken. | **Eerst** corrigeren, dan pas analyseren. Anders herkent de parser "Tant Arts" niet als tandarts. |
-| 91–93 | Staat er een afspraakwoord in? | Nodig voor het type en voor AI-06. |
-| 95–98 | Het type bepalen, in deze volgorde: idee → afspraak (tijd of afspraakwoord) → to-do → persoonlijk. | De volgorde is een **bewuste keuze**. "Ik moet om 2 uur naar de tandarts" bevat "moet" (to-do), maar is een afspraak. Daarom gaat afspraak vóór to-do. |
-| 100–101 | `needsReview`: controleren bij een conflict, een vage datum, of een afspraak zonder tijd. | AI-06. |
-| 103–110 | Het resultaat. De samenvatting komt uit `cleanTranscript`. | Alles samen in één kaartje. |
-| 113–126 | `splitTranscript`: knipt bij "én daarna", "ook nog", "verder". | AI-05: voorstel om meerdere kaartjes te maken. De knop daarvoor komt in fase 4. De gebruiker beslist altijd zelf. |
+| 5 | Het type `ItemType` (afspraak, todo, idee, persoonlijk) komt uit [lib/db/types.ts](../lib/db/types.ts). | Eén definitie op één plek. Staat iets op twee plekken, dan loopt het vroeg of laat uit elkaar. |
+| 10–17 | `Analysis`: de vorm van het resultaat. | Eén vaste vorm, zodat de rest van de app weet wat hij krijgt. |
+| 21 | Woorden die op een **idee** wijzen ("misschien", "zou leuk zijn"). | AI-03. |
+| 23–31 | Woorden die op een **afspraak** wijzen, met de titel die erbij hoort. | Woord en titel staan op één plek, dus als je een woord toevoegt, heb je meteen de titel. |
+| 33–34 | Woorden die met "controle" samen één woord worden. | "Tandarts" + "controle" → "Tandartscontrole" (AI-01). |
+| 36–40 | Woorden die op een **to-do** wijzen ("moet", "kopen", "bellen"). | AI-03. |
+| 44 | Maximale titellengte: 40 tekens. | AI-01. |
+| 46–48 | Beginwoorden zonder inhoud ("ik moet", "niet vergeten", "idee:"). | "Ik moet brood kopen" → titel "Brood kopen". |
+| 50–60 | `capitalize` en `truncate`: hoofdletter, en inkorten zonder een woord doormidden te knippen. | Een titel als "Misschien zou het leuk zijn om naar Ro…" leest slecht. |
+| 62–81 | `makeTitle` in vier stappen: (1) samenstelling met "controle", (2) "eten met Sanne", (3) een afspraakwoord, (4) anders: het eerste deel van de zin, zonder datumwoorden en beginwoorden. | Van specifiek naar algemeen: de eerste regel die past, wint. |
+| 85–88 | `analyzeTranscript` begint: correctielijst toepassen en datum zoeken. | **Eerst** corrigeren, dan pas analyseren. Anders herkent de parser "Tant Arts" niet als tandarts. |
+| 90–92 | Staat er een afspraakwoord in? | Nodig voor het type en voor AI-06. |
+| 94–97 | Het type bepalen, in deze volgorde: idee → afspraak (tijd of afspraakwoord) → to-do → persoonlijk. | De volgorde is een **bewuste keuze**. "Ik moet om 2 uur naar de tandarts" bevat "moet" (to-do), maar is een afspraak. Daarom gaat afspraak vóór to-do. |
+| 99–100 | `needsReview`: controleren bij een conflict, een vage datum, of een afspraak zonder tijd. | AI-06. |
+| 102–109 | Het resultaat. De samenvatting komt uit `cleanTranscript`. | Alles samen in één kaartje. |
+| 112–125 | `splitTranscript`: knipt bij "én daarna", "ook nog", "verder". | AI-05: voorstel om meerdere kaartjes te maken. De knop daarvoor komt in fase 4. De gebruiker beslist altijd zelf. |
 
 ### De tests (*.test.ts)
 
-**Bestanden:** [lib/parser/dutch-date.test.ts](../lib/parser/dutch-date.test.ts) en [lib/classify/classify.test.ts](../lib/classify/classify.test.ts).
+**Bestanden:** [lib/parser/dutch-date.test.ts](../lib/parser/dutch-date.test.ts), [lib/classify/classify.test.ts](../lib/classify/classify.test.ts), [lib/crypto/crypto.test.ts](../lib/crypto/crypto.test.ts) en [lib/db/repository.test.ts](../lib/db/repository.test.ts). De laatste twee gebruiken een nep-database in het geheugen (`fake-indexeddb`), zodat de tests ook op de laptop en op GitHub draaien.
 
-**Wat:** voorbeeldzinnen met het juiste antwoord. Draai `npm test` en de computer controleert ze allemaal (nu 69).
+**Wat:** voorbeeldzinnen met het juiste antwoord. Draai `npm test` en de computer controleert ze allemaal (nu 81).
 
 - **Vaste "vandaag":** de tests doen alsof het **woensdag 7 oktober 2026** is (`const TODAY`). Anders zou "morgen" elke dag een ander antwoord geven en zou een test morgen ineens falen.
 - **`it.each([...])`:** een tabel met voorbeelden. Elke rij is één test. Wil je een voorbeeld toevoegen, dan voeg je één rij toe.
 - **De iPhonezin uit fase 0** staat letterlijk in classify.test.ts, inclusief "smiddags" en "Tant Arts". Zo weten we zeker dat precies die fouten opgelost blijven.
 
 **Let op (analytics translator):** tests zijn de **afspraken** tussen wat het bedrijf wil en wat de code doet. "Om 2 uur = 14:00" is een keuze; doordat die in een test staat, is hij zichtbaar en controleerbaar.
+
+---
+
+## 3b. Opslag en versleuteling
+
+**Het idee in één zin:** alles wat je inspreekt, wordt versleuteld opgeslagen met een sleutel die alleen bestaat zolang de app ontgrendeld is.
+
+```
+ pincode ──(600.000 keer rekenen)──▶ sleutel (alleen in het geheugen)
+                                        │
+ kaartje ──────────▶ versleutelen ──────┴──▶ IndexedDB: { id, iv, ciphertext }
+```
+
+### lib/db/types.ts
+
+**Wat:** het datamodel uit §10 van de requirements: hoe een kaartje (`Item`) en een opname (`Audio`) eruitzien.
+
+| Regels | Wat gebeurt er | Waarom |
+|---|---|---|
+| 4 | De vier types kaartjes. | Eén definitie voor de hele app. |
+| 6 | De status van een kaartje: bezig, klaar, controleren, fout. | Voor het placeholder-kaartje tijdens verwerking (TEC-01) en "Controleer datum" (AI-06). |
+| 8–34 | Alle velden van een kaartje, precies zoals in §10. | Zie het als de **kolommen van een tabel**. Als data-analist denk je zo over data: welke velden, welk type, wat mag leeg zijn (`null`)? |
+| 27–30 | `recurrence` en `exceptions` voor terugkerende afspraken. | Staan er **nu al in**, hoewel de functie pas in fase 6 komt. Zo hoeven bestaande kaartjes later niet omgezet te worden (een "migratie"). |
+| 36–43 | Een opname, met `itemIds`: de kaartjes die deze opname gebruiken. | Gesplitste kaartjes delen één opname (AI-05). |
+
+### lib/crypto/crypto.ts
+
+**Wat:** versleutelen en ontsleutelen met de ingebouwde **Web Crypto API** van de browser. Geen extern pakket nodig.
+
+| Regels | Wat gebeurt er | Waarom |
+|---|---|---|
+| 1–5 | Uitleg van de aanpak. | |
+| 7 | 600.000 rekenrondes. | SEC-04. Bij elke poging moet de computer 600.000 keer rekenen. Voor jou is dat een halve seconde bij het ontgrendelen, maar voor iemand die alle pincodes wil uitproberen duurt het jaren. |
+| 8–9 | Lengtes van de *salt* (16 bytes) en de *IV* (12 bytes). | Standaardwaarden. |
+| 11 | `Encrypted`: een versleuteld pakketje = IV + versleutelde tekst. | |
+| 13–19 | Willekeurige bytes en een nieuwe *salt*. | Een **salt** zorgt dat twee mensen met dezelfde pincode toch een andere sleutel krijgen. |
+| 21–32 | `deriveKey`: pincode + salt → sleutel. `false` op regel 29 = de sleutel kan **niet uitgelezen** worden. | SEC-05. Zelfs onze eigen code kan de sleutel niet bekijken of opslaan, alleen gebruiken. |
+| 34–39 | `encryptBytes`: versleutelen met elke keer een **nieuwe willekeurige IV**. | Dezelfde tekst twee keer versleutelen geeft zo twee verschillende uitkomsten. Een aanvaller ziet dus niet eens dat twee kaartjes hetzelfde zijn. |
+| 41–44 | `decryptBytes`: ontsleutelen. Faalt bij een verkeerde sleutel **of** als iemand de data heeft veranderd. | AES-GCM controleert ook of er niet met de data geknoeid is. |
+| 46–52 | Hetzelfde voor gewone gegevens (JSON). | Een kaartje wordt eerst tekst (JSON) en dan versleuteld. |
+| 54–61 | Omzetten naar en van base64 (bytes als tekst). | Hulpmiddel voor de tests. |
+
+### lib/crypto/vault.ts
+
+**Wat:** de "kluis": pincode instellen en controleren.
+
+| Regels | Wat gebeurt er | Waarom |
+|---|---|---|
+| 1–6 | Uitleg: we slaan **nooit** de pincode of de sleutel op, alleen een versleutelde **controlewaarde**. | Bij het ontgrendelen proberen we die controlewaarde te ontsleutelen. Lukt dat, dan was de pincode goed. Zo is er niets op te slaan wat iemand zou kunnen stelen. |
+| 10 | De controlewaarde: een vaste tekst. | |
+| 12–16 | Pincode moet minstens 6 cijfers zijn. | SEC-04. |
+| 18–20 | `hasVault`: is er al een pincode ingesteld? | Bepaalt of je het scherm "pincode instellen" of "ontgrendelen" ziet. |
+| 22–32 | `createVault`: nieuwe salt, sleutel maken, controlewaarde versleuteld opslaan. | De salt staat in dezelfde rij als de controlewaarde (regels 26–27), zodat ze nooit los van elkaar kunnen raken. **Kleine afwijking van §10**, waar de salt in LocalStorage staat. Als iOS LocalStorage leegmaakt maar de database niet, zouden je gegevens anders onleesbaar worden. Een salt is niet geheim, dus dit is veilig. |
+| 34–44 | `unlockVault`: sleutel maken van de ingetypte pincode en de controlewaarde proberen. Verkeerd = `null`. | SEC-08: er is **geen achterdeur**. Pincode vergeten = gegevens onleesbaar. |
+
+### lib/db/db.ts
+
+**Wat:** de database in de browser (IndexedDB), via Dexie.
+
+| Regels | Wat gebeurt er | Waarom |
+|---|---|---|
+| 6 | Een rij = `id` + `iv` + `ciphertext`. | Alleen het id is leesbaar (§10). Al het andere is versleuteld. |
+| 8–9 | Een opname heeft twee versleutelde delen: de gegevens (duur, datum) en het geluid zelf. | |
+| 11–12 | De kluisrij: salt + versleutelde controlewaarde. | |
+| 14–24 | Drie tabellen: `items`, `audio`, `vault`. Regel 21: alleen het id is een **index**. | Een index op bijvoorbeeld de datum zou in leesbare vorm opgeslagen worden. Daarom zoeken we in het geheugen, na het ontsleutelen (NAV-06). |
+| 26–31 | De database wordt pas gemaakt bij het eerste gebruik. | Tijdens het bouwen van de site (op GitHub) bestaat IndexedDB niet. |
+
+### lib/db/repository.ts
+
+**Wat:** opslaan en laden. **Alles gaat hier door de versleuteling**, zodat de rest van de app alleen ontsleutelde gegevens in het geheugen ziet.
+
+| Regels | Wat gebeurt er | Waarom |
+|---|---|---|
+| 10–13 | `loadItems`: alle kaartjes ophalen en ontsleutelen. | Na het ontgrendelen staat alles in het geheugen. Daar zoeken en filteren we. |
+| 15–17 | `saveItem`: versleutelen en opslaan. | |
+| 19–31 | `deleteItem`: kaartje weg, en de opname ook zodra geen ander kaartje hem meer gebruikt. | SEC-13: echt verwijderen. Gesplitste kaartjes delen één opname; die blijft bestaan zolang er nog één kaartje is. |
+| 35 | `AudioMeta`: een opname zonder het geluid zelf. | |
+| 37–47 | `saveAudio`: gegevens en geluid apart versleuteld. | |
+| 49–55 | `loadAudio`: beide ontsleutelen en weer samenvoegen. | |
+
+**Let op (privacy):** in de tests ([repository.test.ts](../lib/db/repository.test.ts)) controleren we dat een opgeslagen rij **alleen** `id`, `iv` en `ciphertext` bevat, en dat het woord "Tandarts" niet leesbaar is. Dat is de geautomatiseerde versie van het acceptatiecriterium in §13.
 
 ---
 
