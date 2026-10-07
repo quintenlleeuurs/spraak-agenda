@@ -1,0 +1,17 @@
+{
+  "source": "https://huggingface.co/onnx-community/{model}/resolve/main/{file}",
+  "maxPartBytes": 90000000,
+  "models": {
+    "whisper-base": "onnx-community/whisper-base",
+    "whisper-small": "onnx-community/whisper-small"
+  },
+  "files": [
+    "config.json",
+    "generation_config.json",
+    "preprocessor_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "onnx/encoder_model_quantized.onnx",
+    "onnx/decoder_model_merged_quantized.onnx"
+  ]
+}
