@@ -11,6 +11,9 @@ De volledige specificatie staat in @requirements.md. Bij twijfel is requirements
 - De opdrachtgever is geen ontwikkelaar. Leg elke stap in eenvoudig Nederlands uit: wat je gaat doen, waarom, en wat zij daarna moet doen of testen.
 - Vraag toestemming voordat je grote keuzes maakt die niet in requirements.md staan.
 - Sluit elke taak af met een korte samenvatting en concrete testinstructies voor de iPhone.
+- De opdrachtgever wil analytics translator / data-analist worden en moet de code zelf kunnen uitleggen:
+  - Houd **`docs/UITLEG.md`** bij elke wijziging bij: per bestand, per regelbereik, wat er gebeurt en **waarom** ("in regels X–Y doen we dit, zodat …"). Werk regelnummers bij als een bestand verandert. Een commit is pas af als UITLEG.md klopt.
+  - Loop **na elke afgeronde fase alle bestanden** stap voor stap met de opdrachtgever door, bestand voor bestand, met ruimte voor vragen.
 
 ## Harde regels (nooit van afwijken)
 1. **Geen netwerkverkeer met gebruikersdata.** Geen `fetch`/XHR/WebSocket naar externe domeinen. Geen externe AI-API's (Groq, Anthropic, OpenAI e.d.).
