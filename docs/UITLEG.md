@@ -7,7 +7,7 @@ Dit document legt **elk bestand** van de Spraak-agenda uit: per regelbereik wat 
 > - Requirement-ID's zoals `AI-02` of `SEC-01` verwijzen naar [requirements.md](../requirements.md).
 > - De code en het commentaar in de code zijn in het Engels (afspraak in CLAUDE.md); alles in de app en in dit document is Nederlands.
 
-**Laatst bijgewerkt:** fase 1, stap 2 (versleutelde opslag en pincode).
+**Laatst bijgewerkt:** fase 1, stap 3 (installeerbaar op het beginscherm en offline).
 
 ---
 
@@ -33,6 +33,7 @@ Dit document legt **elk bestand** van de Spraak-agenda uit: per regelbereik wat 
    - [app/globals.css](#appglobalscss)
    - [app/page.tsx](#apppagetsx)
    - [components/FeasibilityTest.tsx](#componentsfeasibilitytesttsx)
+   - [5b. Installeerbaar en offline](#5b-installeerbaar-en-offline): manifest, iconen, Service Worker
 6. [Bouwen en publiceren](#6-bouwen-en-publiceren)
    - [scripts/fetch-models.mjs](#scriptsfetch-modelsmjs)
    - [scripts/copy-ort.mjs](#scriptscopy-ortmjs)
@@ -296,10 +297,10 @@ Alles gebeurt **op de iPhone**. Er gaat geen enkel gegeven naar een server (SEC-
 |---|---|---|
 | 13–18 | Modellen alleen van onze eigen site laden (`allowRemoteModels = false`) en bewaren in de browseropslag. | SEC-03: nooit iets van Hugging Face ophalen tijdens gebruik. Opslaan zodat het model maar één keer gedownload hoeft te worden. |
 | 19–21 | Onze eigen poortwachter (`split-fetch`) gebruiken voor alle downloads. | Zie hieronder. |
-| 22–26 | De rekenbestanden (ONNX Runtime) van onze eigen site laden. | Standaard haalt de bibliotheek ze van een externe server (jsDelivr). Dat verbiedt SEC-02. |
-| 30–43 | `load`: model laden met compressie "q8". | q8 = gecomprimeerd tot 8 bits. Kleiner, maar iets minder nauwkeurig. |
-| 45–56 | Bij het bericht "load": eerst WebGPU proberen, anders terugvallen op WebAssembly. | Niet elk toestel heeft WebGPU. |
-| 57–68 | Bij het bericht "transcribe": tekst maken met de taal vast op Nederlands. | Taal vastzetten is sneller en voorkomt dat Whisper denkt dat je Engels praat. |
+| 22–29 | De rekenbestanden (ONNX Runtime) van onze eigen site laden. Regel 25: de bibliotheek hoeft ze niet zelf nog eens te bewaren. | Standaard haalt de bibliotheek ze van een externe server (jsDelivr). Dat verbiedt SEC-02. De Service Worker bewaart ze al voor offline gebruik; een tweede kopie zou 27 MB extra kosten. |
+| 33–46 | `load`: model laden met compressie "q8". | q8 = gecomprimeerd tot 8 bits. Kleiner, maar iets minder nauwkeurig. |
+| 48–59 | Bij het bericht "load": eerst WebGPU proberen, anders terugvallen op WebAssembly. | Niet elk toestel heeft WebGPU. |
+| 60–71 | Bij het bericht "transcribe": tekst maken met de taal vast op Nederlands. | Taal vastzetten is sneller en voorkomt dat Whisper denkt dat je Engels praat. |
 
 ### lib/whisper/messages.ts
 
@@ -324,9 +325,11 @@ Alles gebeurt **op de iPhone**. Er gaat geen enkel gegeven naar een server (SEC-
 
 | Regels | Wat gebeurt er | Waarom |
 |---|---|---|
-| 4–13 | Titel van de pagina en instellingen voor het iPhonescherm (`viewportFit: "cover"`). | Zodat de app het hele scherm gebruikt, ook rond de notch (STY-10). |
-| 15–32 | De **CSP**: de lijst regels voor de browser. `connect-src 'self'` = alleen verbinding met onze eigen site. | SEC-02. Zelfs als er per ongeluk foute code in de app zit, blokkeert de browser verbindingen naar buiten. |
-| 34–43 | De basis-HTML van elke pagina, taal Nederlands. | |
+| 2 | De Service Worker-aanmelding importeren. | Zie [ServiceWorkerRegistration.tsx](#componentsserviceworkerregistrationtsx). |
+| 5–11 | Titel en beschrijving. Regels 8–9: `appleWebApp`, zodat de app vanaf het beginscherm **zonder Safari-balken** opent. | ENV-01: de app wordt vanaf het beginscherm gebruikt. |
+| 12–16 | Instellingen voor het iPhonescherm (`viewportFit: "cover"`). | Zodat de app het hele scherm gebruikt, ook rond de notch (STY-10). |
+| 18–35 | De **CSP**: de lijst regels voor de browser. `connect-src 'self'` = alleen verbinding met onze eigen site. | SEC-02. Zelfs als er per ongeluk foute code in de app zit, blokkeert de browser verbindingen naar buiten. |
+| 37–49 | De basis-HTML van elke pagina, taal Nederlands. Regel 45: de Service Worker aanmelden. | |
 
 ### app/globals.css
 
@@ -351,6 +354,70 @@ Toont de testpagina van fase 0. Wordt in fase 1, stap 4 vervangen door de echte 
 | 70–79 | Opnametimer, met automatisch stoppen na 180 seconden (VOICE-02). |
 | 84–121 | Model laden, opname starten en stoppen. |
 | 123–224 | Wat je op het scherm ziet. AI-tekst wordt altijd als platte tekst getoond (SEC-16). |
+
+---
+
+## 5b. Installeerbaar en offline
+
+**Het idee:** bij je eerste bezoek bewaart de telefoon alle app-bestanden. Daarna opent de app altijd, ook in vliegtuigmodus (TEC-07, VOICE-04).
+
+```
+ eerste bezoek (online) ─▶ Service Worker bewaart 37 app-bestanden ─▶ telefoonopslag
+ later (offline)        ─▶ elk verzoek ─▶ Service Worker ─▶ uit telefoonopslag
+ AI-modellen            ─▶ apart bewaard door de Whisper-werker (zie fase 0)
+```
+
+### app/manifest.ts
+
+**Wat:** het "paspoort" van de app: naam, icoon, kleuren. iOS gebruikt dit bij **Zet op beginscherm**.
+
+| Regels | Wat gebeurt er | Waarom |
+|---|---|---|
+| 7 | `force-static`: maak er tijdens het bouwen een vast bestand van. | We hebben geen server (harde regel 2). |
+| 9 | Het voorvoegsel `/spraak-agenda`. | Anders wijzen de adressen naar de verkeerde plek op GitHub Pages. |
+| 12–26 | Naam ("Spraak-agenda", onder het icoon "Agenda"), start-adres, `standalone` (zonder Safari-balk), donkere achtergrond en de iconen. | ENV-01. |
+
+### Iconen: public/icons/ en app/apple-icon.png
+
+Een terracotta cirkel (kleur van "Afspraak", §5) met een witte microfoon. `apple-icon.png` (180×180) is het icoon voor het iPhone-beginscherm; Next.js voegt het automatisch toe. De vormgeving kan in fase 4 nog mooier.
+
+### components/ServiceWorkerRegistration.tsx
+
+| Regels | Wat gebeurt er | Waarom |
+|---|---|---|
+| 3–5 | Uitleg. | |
+| 11 | Alleen in de gepubliceerde app, en alleen als de browser Service Workers kent. | Tijdens het ontwikkelen zou hij steeds oude bestanden laten zien. |
+| 12–15 | De Service Worker aanmelden voor alles onder `/spraak-agenda/`. Mislukt het, dan werkt de app gewoon online. | Een fout hierin mag de app nooit kapotmaken. |
+| 17 | Geeft niets terug om te tonen. | Het is een onzichtbaar hulponderdeel. |
+
+### scripts/build-sw.mjs
+
+**Wat:** draait automatisch **na** `npm run build` (`postbuild` in package.json) en schrijft `out/sw.js`.
+
+| Regels | Wat gebeurt er | Waarom |
+|---|---|---|
+| 1–6 | Uitleg: de AI-modellen staan **niet** in de lijst. | Die zijn honderden MB en worden apart bewaard. Anders zou je ze dubbel opslaan. |
+| 15–21 | `listFiles`: alle bestanden in de map `out`. | |
+| 23–30 | `shouldCache`: wat **niet** bewaard wordt: modellen, sw.js zelf, `.nojekyll`, `.map`-bestanden en een ongebruikte kopie van de rekenbestanden. | Alleen bewaren wat de app echt nodig heeft. |
+| 34–35 | Bestandsnaam → adres (`index.html` wordt de map). | Zo vraagt de browser ze op. |
+| 37–40 | Een **versienummer**: een vingerafdruk (hash) van alle bestanden. | Verandert er één letter in de app, dan verandert het versienummer, en weet de telefoon dat er een nieuwe versie is. |
+| 42–47 | Het sjabloon invullen en `out/sw.js` schrijven. `replaceAll` = **elke** plek vervangen. | Eerst stond hier `replace` (alleen de eerste plek). Die verving een woord in een opmerking in plaats van in de code, waardoor de Service Worker niet werkte. Een goed voorbeeld van waarom we testen. |
+| 49–50 | Melding: hoeveel bestanden en hoeveel MB. | Nu 37 bestanden, ongeveer 28 MB. |
+
+### scripts/sw-template.js
+
+**Wat:** de Service Worker zelf. Een klein programma dat tussen de app en internet zit.
+
+| Regels | Wat gebeurt er | Waarom |
+|---|---|---|
+| 1–7 | Uitleg: "cache first" (eerst uit de telefoonopslag). De Service Worker stuurt **nooit** iets weg. | SEC-01. |
+| 9–12 | Versie, voorvoegsel en bestandslijst (ingevuld door build-sw.mjs). | |
+| 14–22 | **Installeren:** alle app-bestanden bewaren. `skipWaiting`: de nieuwe versie gaat bij de volgende start meteen in gebruik. | |
+| 24–32 | **Activeren:** oude versies van de app opruimen. De AI-modellen blijven staan. | Anders loopt de opslag vol met oude versies. |
+| 34–63 | **Ophalen:** elk verzoek naar onze eigen site. Hebben we het bestand bewaard, dan komt het van de telefoon. Anders van internet. Offline en niet bewaard? Dan de startpagina. | |
+| 44–49 | Uitzondering voor **werker-scripts**: een kopie zonder eigen adres. | Gevonden met de offline-test. De Whisper-werker leest zijn opstartinformatie uit zijn eigen adres (`#params=…`). Gaf de Service Worker het bewaarde bestand terug, dan "verhuisde" de werker naar het adres zonder die informatie en startte hij niet. Dat was online vanaf het tweede bezoek ook misgegaan. |
+
+**Let op (testen):** dit soort fouten zie je alleen als je **precies het gebruik nabootst**: eerste bezoek, tweede bezoek, offline. Een test die alleen het eerste bezoek controleert, had ze gemist.
 
 ---
 
@@ -403,7 +470,7 @@ Eén plek met de modellen (whisper-base en whisper-small), de bestanden per mode
 
 | Bestand | Wat |
 |---|---|
-| `package.json` | Lijst van gebruikte pakketten en commando's (`npm run dev`, `npm test`, `npm run models`). |
+| `package.json` | Lijst van gebruikte pakketten en commando's (`npm run dev`, `npm test`, `npm run models`). `prebuild` en `postbuild` draaien automatisch vóór en na `npm run build`. |
 | `package-lock.json` | De **exacte** versie van elk pakket (SEC-17). Niet met de hand aanpassen. |
 | `tsconfig.json` | Instellingen voor TypeScript (JavaScript met typecontrole). |
 | `eslint.config.mjs` | Regels voor codekwaliteit. Gegenereerde mappen (`public/ort`, `public/models`) worden overgeslagen. |

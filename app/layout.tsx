@@ -1,9 +1,12 @@
 import type { Metadata, Viewport } from "next";
+import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Spraak-agenda · Haalbaarheidstest",
-  description: "Fase 0: spraak naar tekst, volledig op het toestel.",
+  title: "Spraak-agenda",
+  description: "Spreek je afspraken in. Alles blijft op je telefoon.",
+  // iPhone home screen: open full screen, without Safari's address bar.
+  appleWebApp: { capable: true, title: "Agenda", statusBarStyle: "black-translucent" },
 };
 
 export const viewport: Viewport = {
@@ -37,7 +40,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <head>
         <meta httpEquiv="Content-Security-Policy" content={csp} />
       </head>
-      <body className="min-h-full">{children}</body>
+      <body className="min-h-full">
+        {children}
+        <ServiceWorkerRegistration />
+      </body>
     </html>
   );
 }

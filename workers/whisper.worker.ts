@@ -20,6 +20,9 @@ env.fetch = createSplitAwareFetch(modelsPath, ({ file, loaded, total }) =>
   post({ type: "progress", file, loaded, total }),
 );
 // Self-hosted ONNX Runtime files instead of the default CDN (SEC-02).
+// The Service Worker stores these files for offline use, so transformers.js
+// does not need to keep its own second copy.
+env.useWasmCache = false;
 env.backends.onnx.wasm!.wasmPaths = {
   mjs: `${basePath}/ort/ort-wasm-simd-threaded.asyncify.mjs`,
   wasm: `${basePath}/ort/ort-wasm-simd-threaded.asyncify.wasm`,
