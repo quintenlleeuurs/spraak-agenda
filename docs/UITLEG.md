@@ -7,7 +7,7 @@ Dit document legt **elk bestand** van de Spraak-agenda uit: per regelbereik wat 
 > - Requirement-ID's zoals `AI-02` of `SEC-01` verwijzen naar [requirements.md](../requirements.md).
 > - De code en het commentaar in de code zijn in het Engels (afspraak in CLAUDE.md); alles in de app en in dit document is Nederlands.
 
-**Laatst bijgewerkt:** fase 1, stap 3b (diagnosepaneel om de iPhone-fout te vinden).
+**Laatst bijgewerkt:** fase 1, stap 3c (logboek overleeft een herstart van de pagina).
 
 ---
 
@@ -366,19 +366,23 @@ Toont de testpagina van fase 0. Wordt in fase 1, stap 4 vervangen door de echte 
 
 | Regels | Wat gebeurt er | Waarom |
 |---|---|---|
-| 1–3 | Uitleg: alleen in het geheugen, nooit opgeslagen of verstuurd, en **zonder** transcripties. | Privacy: ook een logboek is data. Daarom staan er alleen stappen, groottes en foutmeldingen in. |
-| 7–15 | `logStep`: een regel met tijd toevoegen (maximaal 60) en het paneel laten weten dat er iets nieuws is. | |
-| 17–29 | Aanmelden voor wijzigingen en de lijst opvragen. | Zo ververst het paneel zichzelf. |
+| 1–6 | Uitleg: **zonder** transcripties, en bewaard in de *sessie-opslag* (`sessionStorage`). | Privacy: ook een logboek is data, dus alleen stappen, groottes en foutmeldingen. De sessie-opslag overleeft een herstart van de pagina door iOS, maar wordt gewist als je de app afsluit. |
+| 10–13 | Maximaal 60 regels; de naam in de sessie-opslag. | |
+| 15–21 | `persist`: het logboek in de sessie-opslag zetten. Lukt dat niet, dan werkt het logboek gewoon in het geheugen. | Een diagnosehulpmiddel mag de app nooit laten vastlopen. |
+| 23–28 | `logStep`: een regel met tijd toevoegen, bewaren en het paneel laten weten dat er iets nieuws is. | |
+| 30–39 | `restoreLog`: het logboek van vóór een herstart terughalen en de laatste regel teruggeven. | Die laatste regel vertelt **waar** het misging. |
+| 41–53 | Aanmelden voor wijzigingen en de lijst opvragen. | Zo ververst het paneel zichzelf. |
 
 **Diagnostics.tsx**
 
 | Regels | Wat gebeurt er | Waarom |
 |---|---|---|
-| 9–35 | `describeEnvironment`: geopend vanaf beginscherm of in Safari? Online? Is de Service Worker actief en regelt hij de pagina? Wat is er opgeslagen en hoeveel ruimte? | Dit zijn precies de vragen bij "werkt niet offline". |
-| 37–44 | `resetApp`: Service Worker afmelden, alle opgeslagen bestanden en modellen wissen, herladen. | Om schoon opnieuw te testen. Je kaartjes (IndexedDB) worden **niet** gewist. |
-| 50–60 | Fouten op de pagina opvangen en in het logboek zetten. | |
-| 62–65 | "Kopieer log": het logboek naar het klembord, zodat je het kunt plakken. | Makkelijker dan een lange screenshot. |
-| 67–87 | Het paneel zelf. | |
+| 9–15 | Was er al een logboek in deze sessie? Dan is de pagina **opnieuw opgestart** zonder dat je de app sloot. We tonen de laatste stap vóór de herstart, en hoe de pagina geladen werd (`navigate` = normaal, `reload` = herladen). | Vermoeden: iOS herstart de pagina als het werkgeheugen volloopt tijdens Whisper. Dit maakt dat zichtbaar. |
+| 17–42 | Geopend vanaf beginscherm of in Safari? Online? Is de Service Worker actief en regelt hij de pagina? Wat is er opgeslagen en hoeveel ruimte? | Dit zijn precies de vragen bij "werkt niet offline". |
+| 44–52 | `resetApp`: Service Worker afmelden, alle opgeslagen bestanden, modellen en het logboek wissen, herladen. | Om schoon opnieuw te testen. Je kaartjes (IndexedDB) worden **niet** gewist. |
+| 58–71 | Fouten op de pagina opvangen, en loggen wanneer de pagina verborgen of weer zichtbaar wordt. | |
+| 73–76 | "Kopieer log": het logboek naar het klembord, zodat je het kunt plakken. | Makkelijker dan een lange screenshot. |
+| 78–98 | Het paneel zelf. | |
 
 **Let op (analytics translator):** dit is **instrumentatie**: meetpunten inbouwen zodat je kunt zien wat er gebeurt in plaats van te gokken. Hetzelfde doe je bij data-analyse wanneer je bijhoudt waar gebruikers afhaken in een proces. Let er wel op wat je logt: hier bewust géén inhoud.
 

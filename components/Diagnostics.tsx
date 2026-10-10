@@ -4,9 +4,16 @@
 // storage on this phone. Temporary aid for testing; nothing leaves the device.
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { getEmptyLog, getLog, logStep, subscribeLog } from "@/lib/diagnostics/log";
+import { getEmptyLog, getLog, logStep, restoreLog, subscribeLog } from "@/lib/diagnostics/log";
 
 async function describeEnvironment() {
+  // A previous log in this session means the page started again without the
+  // app being closed: iOS restarted it (often because memory ran out).
+  const previous = restoreLog();
+  if (previous) logStep(`⚠️ Pagina is opnieuw opgestart. Laatste stap vóór de herstart: "${previous.text}"`);
+  const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+  logStep(`Pagina geladen (${navigation?.type ?? "onbekend"})`);
+
   const standalone =
     window.matchMedia("(display-mode: standalone)").matches ||
     (navigator as Navigator & { standalone?: boolean }).standalone === true;
@@ -40,6 +47,7 @@ async function resetApp() {
   await Promise.all((registrations ?? []).map((registration) => registration.unregister()));
   const keys = await caches.keys();
   await Promise.all(keys.map((key) => caches.delete(key)));
+  sessionStorage.clear();
   location.reload();
 }
 
@@ -50,12 +58,15 @@ export default function Diagnostics() {
   useEffect(() => {
     const onError = (event: ErrorEvent) => logStep(`Fout op pagina: ${event.message}`);
     const onRejection = (event: PromiseRejectionEvent) => logStep(`Fout (async): ${String(event.reason)}`);
+    const onVisibility = () => logStep(`Pagina ${document.visibilityState === "hidden" ? "verborgen" : "weer zichtbaar"}`);
     window.addEventListener("error", onError);
     window.addEventListener("unhandledrejection", onRejection);
+    document.addEventListener("visibilitychange", onVisibility);
     void describeEnvironment().catch((error) => logStep(`Diagnose mislukt: ${String(error)}`));
     return () => {
       window.removeEventListener("error", onError);
       window.removeEventListener("unhandledrejection", onRejection);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 
