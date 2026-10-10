@@ -1,17 +1,26 @@
 {
   "source": "https://huggingface.co/onnx-community/{model}/resolve/main/{file}",
   "maxPartBytes": 90000000,
-  "models": {
-    "whisper-base": "onnx-community/whisper-base",
-    "whisper-small": "onnx-community/whisper-small"
-  },
-  "files": [
+  "commonFiles": [
     "config.json",
     "generation_config.json",
     "preprocessor_config.json",
     "tokenizer.json",
-    "tokenizer_config.json",
-    "onnx/encoder_model_quantized.onnx",
-    "onnx/decoder_model_merged_quantized.onnx"
-  ]
+    "tokenizer_config.json"
+  ],
+  "models": {
+    "whisper-base": {
+      "repo": "onnx-community/whisper-base",
+      "files": ["onnx/encoder_model_quantized.onnx", "onnx/decoder_model_merged_quantized.onnx"]
+    },
+    "whisper-small": {
+      "repo": "onnx-community/whisper-small",
+      "files": [
+        "onnx/encoder_model_quantized.onnx",
+        "onnx/decoder_model_merged_quantized.onnx",
+        "onnx/encoder_model_fp16.onnx",
+        "onnx/decoder_model_merged_q4.onnx"
+      ]
+    }
+  }
 }

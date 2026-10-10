@@ -3,7 +3,7 @@
 
 import { env, pipeline, type AutomaticSpeechRecognitionPipeline } from "@huggingface/transformers";
 import { createSplitAwareFetch } from "@/lib/whisper/split-fetch";
-import type { WorkerRequest, WorkerResponse } from "@/lib/whisper/messages";
+import type { WhisperDtype, WorkerRequest, WorkerResponse } from "@/lib/whisper/messages";
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 const modelsPath = `${basePath}/models/`;
@@ -33,12 +33,12 @@ let transcriber: AutomaticSpeechRecognitionPipeline | null = null;
 // Diagnostics: if this line never appears in the log, the worker did not start.
 post({ type: "log", message: `Werker gestart (WebGPU: ${"gpu" in navigator ? "ja" : "nee"})` });
 
-async function load(model: string, device: "webgpu" | "wasm") {
+async function load(model: string, device: "webgpu" | "wasm", dtype: WhisperDtype) {
   const started = performance.now();
   transcriber = null;
   transcriber = await pipeline("automatic-speech-recognition", model, {
     device,
-    dtype: { encoder_model: "q8", decoder_model_merged: "q8" },
+    dtype,
     progress_callback: (info) => {
       if (info.status === "progress") {
         post({ type: "progress", file: info.file, loaded: info.loaded, total: info.total });
@@ -53,12 +53,12 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   try {
     if (message.type === "load") {
       try {
-        await load(message.model, message.device);
+        await load(message.model, message.device, message.dtype);
       } catch (error) {
         // WebGPU is not available everywhere; fall back to WebAssembly.
         if (message.device !== "webgpu") throw error;
         post({ type: "warning", message: `WebGPU lukte niet, terugval op WASM: ${String(error)}` });
-        await load(message.model, "wasm");
+        await load(message.model, "wasm", message.dtype);
       }
     } else if (message.type === "transcribe") {
       if (!transcriber) throw new Error("Model is nog niet geladen");

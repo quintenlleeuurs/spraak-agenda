@@ -7,7 +7,7 @@ Dit document legt **elk bestand** van de Spraak-agenda uit: per regelbereik wat 
 > - Requirement-ID's zoals `AI-02` of `SEC-01` verwijzen naar [requirements.md](../requirements.md).
 > - De code en het commentaar in de code zijn in het Engels (afspraak in CLAUDE.md); alles in de app en in dit document is Nederlands.
 
-**Laatst bijgewerkt:** fase 1, stap 3c (logboek overleeft een herstart van de pagina).
+**Laatst bijgewerkt:** fase 1, stap 3d (WebGPU-variant van whisper-small tegen geheugenproblemen op de iPhone).
 
 ---
 
@@ -300,13 +300,24 @@ Alles gebeurt **op de iPhone**. Er gaat geen enkel gegeven naar een server (SEC-
 | 19–21 | Onze eigen poortwachter (`split-fetch`) gebruiken voor alle downloads. | Zie hieronder. |
 | 22–29 | De rekenbestanden (ONNX Runtime) van onze eigen site laden. Regel 25: de bibliotheek hoeft ze niet zelf nog eens te bewaren. | Standaard haalt de bibliotheek ze van een externe server (jsDelivr). Dat verbiedt SEC-02. De Service Worker bewaart ze al voor offline gebruik; een tweede kopie zou 27 MB extra kosten. |
 | 31–34 | Bij het opstarten meldt de werker zich in het logboek ("Werker gestart"). | Diagnose: staat die regel er niet, dan is de werker niet gestart. |
-| 36–49 | `load`: model laden met compressie "q8". | q8 = gecomprimeerd tot 8 bits. Kleiner, maar iets minder nauwkeurig. |
+| 36–49 | `load`: model laden met de gekozen compressie (`dtype`, regel 41). | Zie "Compressie en geheugen" hieronder. |
 | 51–62 | Bij het bericht "load": eerst WebGPU proberen, anders terugvallen op WebAssembly. | Niet elk toestel heeft WebGPU. |
 | 63–75 | Bij het bericht "transcribe": tekst maken met de taal vast op Nederlands. Regel 66 schrijft "Whisper begint" in het logboek. | Taal vastzetten is sneller en voorkomt dat Whisper denkt dat je Engels praat. |
 
+
+**Compressie en geheugen (belangrijk, gevonden met de iPhonetest):**
+
+| Variant | Download | Wat er in het geheugen gebeurt | Op de iPhone |
+|---|---|---|---|
+| whisper-small **q8** (8 bits) | ±250 MB | De grafische chip kan niet met 8 bits rekenen en pakt het model uit naar 32 bits: ±1 GB geheugen. | ❌ iOS herstart de pagina |
+| whisper-small **fp16 + q4** | ±410 MB | Beide vormen kan de grafische chip direct gebruiken. | Wordt getest |
+| whisper-base **q8** | ±77 MB | Klein genoeg, ook uitgepakt. | ✅ werkt, maar 26% woordfouten |
+
+Les: **kleiner downloaden is niet hetzelfde als minder geheugen gebruiken.** Wat telt, is de vorm waarin het model tijdens het rekenen in het geheugen staat.
+
 ### lib/whisper/messages.ts
 
-**Wat:** de "berichtenlijst" tussen het scherm en de worker. Zo weten beide kanten precies welke berichten er bestaan (`load`, `transcribe`, `progress`, `ready`, `result`, `warning`, `log`, `error`). Regel 14: `log` is alleen voor het diagnosepaneel en bevat **nooit** wat je hebt gezegd.
+**Wat:** de "berichtenlijst" tussen het scherm en de worker. Zo weten beide kanten precies welke berichten er bestaan (`load`, `transcribe`, `progress`, `ready`, `result`, `warning`, `log`, `error`). Regels 5–6: `WhisperDtype`, de compressie per modeldeel. Regel 17: `log` is alleen voor het diagnosepaneel en bevat **nooit** wat je hebt gezegd.
 
 ### lib/whisper/split-fetch.ts
 
@@ -316,8 +327,8 @@ Alles gebeurt **op de iPhone**. Er gaat geen enkel gegeven naar een server (SEC-
 | 17–20 | Het overzicht van opgeknipte bestanden (`split-manifest.json`) ophalen. | Daarin staat welke bestanden uit delen bestaan. |
 | 22–34 | `assemble`: de delen (`.part0`, `.part1`) ophalen en aan elkaar plakken. | GitHub staat geen bestanden groter dan 100 MB toe; het whisper-small-bestand is 157 MB. |
 | 36–40 | **Privacy-bewaker:** weigert elk verzoek naar een ander domein. | SEC-01. Een extra slot op de deur, naast de CSP. |
-| 42–61 | Is het bestand opgeknipt? Dan de aan elkaar geplakte versie teruggeven (en onthouden). | De AI-bibliotheek merkt niet dat het bestand opgeknipt was. |
-| 63 | Anders gewoon downloaden (van de eigen site). | |
+| 42–63 | Is het bestand opgeknipt? Dan de aan elkaar geplakte versie teruggeven. Regels 46–53: vragen twee onderdelen tegelijk hetzelfde bestand, dan wordt het maar één keer samengevoegd. Daarna wordt het **meteen weer vergeten** (regel 51). | De AI-bibliotheek merkt niet dat het bestand opgeknipt was. Eerst bleef elk samengevoegd bestand voor altijd in het geheugen staan: honderden MB, en een van de oorzaken dat iOS de pagina herstartte. |
+| 65 | Anders gewoon downloaden (van de eigen site). | |
 
 ---
 
@@ -351,12 +362,13 @@ Toont de testpagina van fase 0. Wordt in fase 1, stap 4 vervangen door de echte 
 
 | Regels | Wat gebeurt er |
 |---|---|
-| 12–17 | Vaste waarden: de modellen, maximale opnameduur (180 s, VOICE-02) en na hoeveel seconden het logboek meldt dat Whisper niet antwoordt. |
-| 22–43 | Geheugen van de pagina (gekozen model, status, resultaten). WebGPU-detectie via `useSyncExternalStore`. |
-| 45–86 | De werker starten en luisteren naar zijn berichten. Regels 49–53: `onerror` vangt een werker die **niet start**. Zonder dit gebeurde er stil niets, wat precies het probleem op je iPhone kan zijn. |
-| 88–97 | Opnametimer, met automatisch stoppen na 180 seconden. |
-| 102–147 | Model laden, opname starten en stoppen. Elke stap schrijft een regel in het logboek (opnamegrootte, formaat, aantal seconden). |
-| 149–255 | Wat je op het scherm ziet. AI-tekst wordt altijd als platte tekst getoond (SEC-16). Regel 253: het diagnosepaneel. |
+| 12–31 | De keuzes in het menu: drie varianten (zie "Compressie en geheugen"). `key` maakt elke keuze uniek, want whisper-small staat er twee keer in, met verschillende compressie. |
+| 33–34 | Maximale opnameduur (180 s, VOICE-02) en na hoeveel seconden het logboek meldt dat Whisper niet antwoordt. |
+| 39–61 | Geheugen van de pagina (gekozen model, status, resultaten). WebGPU-detectie via `useSyncExternalStore`. |
+| 63–104 | De werker starten en luisteren naar zijn berichten. Regels 67–71: `onerror` vangt een werker die **niet start**. Zonder dit gebeurt er stil niets. |
+| 106–115 | Opnametimer, met automatisch stoppen na 180 seconden. |
+| 120–165 | Model laden (met de gekozen compressie), opname starten en stoppen. Elke stap schrijft een regel in het logboek. |
+| 167–273 | Wat je op het scherm ziet. AI-tekst wordt altijd als platte tekst getoond (SEC-16). Regel 271: het diagnosepaneel. |
 
 ### lib/diagnostics/log.ts en components/Diagnostics.tsx
 
@@ -461,7 +473,7 @@ Een terracotta cirkel (kleur van "Afspraak", §5) met een witte microfoon. `appl
 | 1–9 | Uitleg. | |
 | 27–36 | Downloaden naar een tijdelijk bestand en daarna pas hernoemen. | Stopt een download halverwege, dan ziet het script de volgende keer geen half bestand voor een compleet bestand aan. |
 | 38–53 | Opknippen in delen van 90 MB. | Onder de GitHub-limiet van 100 MB. |
-| 56–77 | Voor elk model en elk bestand: overslaan als het er al is, anders downloaden en zo nodig opknippen. | Zo kun je het script veilig vaker draaien. |
+| 56–77 | Voor elk model: de gemeenschappelijke bestanden plus de eigen bestanden. Overslaan als het er al is, anders downloaden en zo nodig opknippen. | Zo kun je het script veilig vaker draaien; alleen nieuwe bestanden worden gedownload. |
 
 ### scripts/copy-ort.mjs
 
@@ -469,7 +481,7 @@ Kopieert twee rekenbestanden van de AI-bibliotheek naar `public/ort`, zodat ze v
 
 ### config/models.json
 
-Eén plek met de modellen (whisper-base en whisper-small), de bestanden per model en de maximale bestandsgrootte (90 MB).
+Eén plek met de modellen en hun bestanden. `commonFiles` zijn bestanden die elk model heeft (instellingen, woordenlijst). Per model staat onder `files` welke compressievarianten we aanbieden; whisper-small heeft er twee (q8, en fp16 + q4 voor WebGPU). `maxPartBytes`: bestanden boven 90 MB worden opgeknipt.
 
 ### .github/workflows/deploy.yml
 

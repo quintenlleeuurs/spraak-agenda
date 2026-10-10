@@ -7,11 +7,28 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Diagnostics from "@/components/Diagnostics";
 import { startRecording, toWhisperAudio, WHISPER_SAMPLE_RATE, type Recording } from "@/lib/audio/recorder";
 import { logStep } from "@/lib/diagnostics/log";
-import type { WhisperDevice, WorkerRequest, WorkerResponse } from "@/lib/whisper/messages";
+import type { WhisperDevice, WhisperDtype, WorkerRequest, WorkerResponse } from "@/lib/whisper/messages";
 
-const MODELS = [
-  { id: "onnx-community/whisper-small", label: "whisper-small (±250 MB, nauwkeuriger)" },
-  { id: "onnx-community/whisper-base", label: "whisper-base (±77 MB, sneller)" },
+// "key" identifies the option; one model can be offered with different compressions.
+const MODELS: { key: string; id: string; label: string; dtype: WhisperDtype }[] = [
+  {
+    key: "small-gpu",
+    id: "onnx-community/whisper-small",
+    label: "whisper-small, WebGPU-variant (±410 MB)",
+    dtype: { encoder_model: "fp16", decoder_model_merged: "q4" },
+  },
+  {
+    key: "small-q8",
+    id: "onnx-community/whisper-small",
+    label: "whisper-small, q8 (±250 MB)",
+    dtype: { encoder_model: "q8", decoder_model_merged: "q8" },
+  },
+  {
+    key: "base-q8",
+    id: "onnx-community/whisper-base",
+    label: "whisper-base, q8 (±77 MB, sneller)",
+    dtype: { encoder_model: "q8", decoder_model_merged: "q8" },
+  },
 ];
 const MAX_RECORDING_SECONDS = 180; // VOICE-02
 const WHISPER_TIMEOUT_MS = 120_000; // log a warning when Whisper takes longer than this
@@ -26,7 +43,8 @@ export default function FeasibilityTest() {
   const activeRef = useRef<{ model: string; device: WhisperDevice }>({ model: "", device: "wasm" });
   const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [model, setModel] = useState(MODELS[0].id);
+  const [modelKey, setModelKey] = useState(MODELS[0].key);
+  const model = MODELS.find((option) => option.key === modelKey) ?? MODELS[0];
   // WebGPU can only be detected in the browser, not during the static build.
   const webgpuAvailable = useSyncExternalStore(
     () => () => {},
@@ -103,10 +121,10 @@ export default function FeasibilityTest() {
     setMessage(null);
     setProgress({});
     setStatus("loading");
-    activeRef.current = { model: model.split("/")[1], device };
+    activeRef.current = { model: model.label.split(" (")[0], device };
     setLoaded(null);
-    logStep(`Model laden: ${model.split("/")[1]} via ${device}`);
-    send({ type: "load", model, device });
+    logStep(`Model laden: ${model.label.split(" (")[0]} via ${device}`);
+    send({ type: "load", model: model.id, device, dtype: model.dtype });
   }
 
   async function start() {
@@ -166,12 +184,12 @@ export default function FeasibilityTest() {
           Model
           <select
             className="rounded-xl border border-black/10 bg-transparent p-2 dark:border-white/20"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
+            value={modelKey}
+            onChange={(e) => setModelKey(e.target.value)}
             disabled={status === "loading" || status === "recording" || status === "processing"}
           >
             {MODELS.map((m) => (
-              <option key={m.id} value={m.id}>
+              <option key={m.key} value={m.key}>
                 {m.label}
               </option>
             ))}

@@ -43,10 +43,12 @@ export function createSplitAwareFetch(
       const file = decodeURIComponent(url.pathname.slice(modelsPath.length));
       const entry = (await loadManifest())[file];
       if (entry) {
-        // Memoize: transformers.js may request the same file more than once.
+        // Share one assembly between requests that arrive at the same time,
+        // but forget it afterwards: keeping hundreds of MB in memory made
+        // iOS restart the page (found with the diagnostics panel).
         if (!assembled.has(file)) {
           const promise = assemble(url, file, entry);
-          promise.catch(() => assembled.delete(file));
+          promise.finally(() => assembled.delete(file)).catch(() => {});
           assembled.set(file, promise);
         }
         const blob = await assembled.get(file)!;

@@ -53,8 +53,8 @@ async function split(path, maxPartBytes) {
   return { parts, size };
 }
 
-for (const [name, repo] of Object.entries(config.models)) {
-  for (const file of config.files) {
+for (const [name, { repo, files }] of Object.entries(config.models)) {
+  for (const file of [...config.commonFiles, ...files]) {
     const key = `${repo}/${file}`;
     const target = join(modelsDir, repo, file);
 
