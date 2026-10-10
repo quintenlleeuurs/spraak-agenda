@@ -7,7 +7,7 @@ Dit document legt **elk bestand** van de Spraak-agenda uit: per regelbereik wat 
 > - Requirement-ID's zoals `AI-02` of `SEC-01` verwijzen naar [requirements.md](../requirements.md).
 > - De code en het commentaar in de code zijn in het Engels (afspraak in CLAUDE.md); alles in de app en in dit document is Nederlands.
 
-**Laatst bijgewerkt:** fase 1, stap 3 (installeerbaar op het beginscherm en offline).
+**Laatst bijgewerkt:** fase 1, stap 3b (diagnosepaneel om de iPhone-fout te vinden).
 
 ---
 
@@ -33,6 +33,7 @@ Dit document legt **elk bestand** van de Spraak-agenda uit: per regelbereik wat 
    - [app/globals.css](#appglobalscss)
    - [app/page.tsx](#apppagetsx)
    - [components/FeasibilityTest.tsx](#componentsfeasibilitytesttsx)
+   - [Diagnosepaneel](#libdiagnosticslogts-en-componentsdiagnosticstsx)
    - [5b. Installeerbaar en offline](#5b-installeerbaar-en-offline): manifest, iconen, Service Worker
 6. [Bouwen en publiceren](#6-bouwen-en-publiceren)
    - [scripts/fetch-models.mjs](#scriptsfetch-modelsmjs)
@@ -298,13 +299,14 @@ Alles gebeurt **op de iPhone**. Er gaat geen enkel gegeven naar een server (SEC-
 | 13–18 | Modellen alleen van onze eigen site laden (`allowRemoteModels = false`) en bewaren in de browseropslag. | SEC-03: nooit iets van Hugging Face ophalen tijdens gebruik. Opslaan zodat het model maar één keer gedownload hoeft te worden. |
 | 19–21 | Onze eigen poortwachter (`split-fetch`) gebruiken voor alle downloads. | Zie hieronder. |
 | 22–29 | De rekenbestanden (ONNX Runtime) van onze eigen site laden. Regel 25: de bibliotheek hoeft ze niet zelf nog eens te bewaren. | Standaard haalt de bibliotheek ze van een externe server (jsDelivr). Dat verbiedt SEC-02. De Service Worker bewaart ze al voor offline gebruik; een tweede kopie zou 27 MB extra kosten. |
-| 33–46 | `load`: model laden met compressie "q8". | q8 = gecomprimeerd tot 8 bits. Kleiner, maar iets minder nauwkeurig. |
-| 48–59 | Bij het bericht "load": eerst WebGPU proberen, anders terugvallen op WebAssembly. | Niet elk toestel heeft WebGPU. |
-| 60–71 | Bij het bericht "transcribe": tekst maken met de taal vast op Nederlands. | Taal vastzetten is sneller en voorkomt dat Whisper denkt dat je Engels praat. |
+| 31–34 | Bij het opstarten meldt de werker zich in het logboek ("Werker gestart"). | Diagnose: staat die regel er niet, dan is de werker niet gestart. |
+| 36–49 | `load`: model laden met compressie "q8". | q8 = gecomprimeerd tot 8 bits. Kleiner, maar iets minder nauwkeurig. |
+| 51–62 | Bij het bericht "load": eerst WebGPU proberen, anders terugvallen op WebAssembly. | Niet elk toestel heeft WebGPU. |
+| 63–75 | Bij het bericht "transcribe": tekst maken met de taal vast op Nederlands. Regel 66 schrijft "Whisper begint" in het logboek. | Taal vastzetten is sneller en voorkomt dat Whisper denkt dat je Engels praat. |
 
 ### lib/whisper/messages.ts
 
-**Wat:** de "berichtenlijst" tussen het scherm en de worker. Zo weten beide kanten precies welke berichten er bestaan (`load`, `transcribe`, `progress`, `ready`, `result`, `warning`, `error`).
+**Wat:** de "berichtenlijst" tussen het scherm en de worker. Zo weten beide kanten precies welke berichten er bestaan (`load`, `transcribe`, `progress`, `ready`, `result`, `warning`, `log`, `error`). Regel 14: `log` is alleen voor het diagnosepaneel en bevat **nooit** wat je hebt gezegd.
 
 ### lib/whisper/split-fetch.ts
 
@@ -349,13 +351,36 @@ Toont de testpagina van fase 0. Wordt in fase 1, stap 4 vervangen door de echte 
 
 | Regels | Wat gebeurt er |
 |---|---|
-| 19–39 | Geheugen van de pagina (gekozen model, status, resultaten). WebGPU-detectie in regels 26–31. |
-| 41–68 | De worker starten en luisteren naar zijn berichten. |
-| 70–79 | Opnametimer, met automatisch stoppen na 180 seconden (VOICE-02). |
-| 84–121 | Model laden, opname starten en stoppen. |
-| 123–224 | Wat je op het scherm ziet. AI-tekst wordt altijd als platte tekst getoond (SEC-16). |
+| 12–17 | Vaste waarden: de modellen, maximale opnameduur (180 s, VOICE-02) en na hoeveel seconden het logboek meldt dat Whisper niet antwoordt. |
+| 22–43 | Geheugen van de pagina (gekozen model, status, resultaten). WebGPU-detectie via `useSyncExternalStore`. |
+| 45–86 | De werker starten en luisteren naar zijn berichten. Regels 49–53: `onerror` vangt een werker die **niet start**. Zonder dit gebeurde er stil niets, wat precies het probleem op je iPhone kan zijn. |
+| 88–97 | Opnametimer, met automatisch stoppen na 180 seconden. |
+| 102–147 | Model laden, opname starten en stoppen. Elke stap schrijft een regel in het logboek (opnamegrootte, formaat, aantal seconden). |
+| 149–255 | Wat je op het scherm ziet. AI-tekst wordt altijd als platte tekst getoond (SEC-16). Regel 253: het diagnosepaneel. |
 
----
+### lib/diagnostics/log.ts en components/Diagnostics.tsx
+
+**Wat:** een tijdelijk **diagnosepaneel** onderaan de testpagina. Op een iPhone kun je zonder Mac niet in de ontwikkelaarstools kijken; dit paneel laat zien wat er gebeurt.
+
+**log.ts**
+
+| Regels | Wat gebeurt er | Waarom |
+|---|---|---|
+| 1–3 | Uitleg: alleen in het geheugen, nooit opgeslagen of verstuurd, en **zonder** transcripties. | Privacy: ook een logboek is data. Daarom staan er alleen stappen, groottes en foutmeldingen in. |
+| 7–15 | `logStep`: een regel met tijd toevoegen (maximaal 60) en het paneel laten weten dat er iets nieuws is. | |
+| 17–29 | Aanmelden voor wijzigingen en de lijst opvragen. | Zo ververst het paneel zichzelf. |
+
+**Diagnostics.tsx**
+
+| Regels | Wat gebeurt er | Waarom |
+|---|---|---|
+| 9–35 | `describeEnvironment`: geopend vanaf beginscherm of in Safari? Online? Is de Service Worker actief en regelt hij de pagina? Wat is er opgeslagen en hoeveel ruimte? | Dit zijn precies de vragen bij "werkt niet offline". |
+| 37–44 | `resetApp`: Service Worker afmelden, alle opgeslagen bestanden en modellen wissen, herladen. | Om schoon opnieuw te testen. Je kaartjes (IndexedDB) worden **niet** gewist. |
+| 50–60 | Fouten op de pagina opvangen en in het logboek zetten. | |
+| 62–65 | "Kopieer log": het logboek naar het klembord, zodat je het kunt plakken. | Makkelijker dan een lange screenshot. |
+| 67–87 | Het paneel zelf. | |
+
+**Let op (analytics translator):** dit is **instrumentatie**: meetpunten inbouwen zodat je kunt zien wat er gebeurt in plaats van te gokken. Hetzelfde doe je bij data-analyse wanneer je bijhoudt waar gebruikers afhaken in een proces. Let er wel op wat je logt: hier bewust géén inhoud.
 
 ## 5b. Installeerbaar en offline
 

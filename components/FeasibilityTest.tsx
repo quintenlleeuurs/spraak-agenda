@@ -4,7 +4,9 @@
 // plus timing per run so we can compare models and devices.
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import Diagnostics from "@/components/Diagnostics";
 import { startRecording, toWhisperAudio, WHISPER_SAMPLE_RATE, type Recording } from "@/lib/audio/recorder";
+import { logStep } from "@/lib/diagnostics/log";
 import type { WhisperDevice, WorkerRequest, WorkerResponse } from "@/lib/whisper/messages";
 
 const MODELS = [
@@ -12,6 +14,7 @@ const MODELS = [
   { id: "onnx-community/whisper-base", label: "whisper-base (±77 MB, sneller)" },
 ];
 const MAX_RECORDING_SECONDS = 180; // VOICE-02
+const WHISPER_TIMEOUT_MS = 120_000; // log a warning when Whisper takes longer than this
 
 type Status = "idle" | "loading" | "ready" | "recording" | "processing";
 type Run = { model: string; device: WhisperDevice; audioSec: number; processSec: number; text: string };
@@ -21,6 +24,7 @@ export default function FeasibilityTest() {
   const recordingRef = useRef<Recording | null>(null);
   const pendingRef = useRef<{ audioSec: number } | null>(null);
   const activeRef = useRef<{ model: string; device: WhisperDevice }>({ model: "", device: "wasm" });
+  const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [model, setModel] = useState(MODELS[0].id);
   // WebGPU can only be detected in the browser, not during the static build.
@@ -39,26 +43,40 @@ export default function FeasibilityTest() {
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    logStep("Werker wordt aangemaakt");
     const worker = new Worker(new URL("../workers/whisper.worker.ts", import.meta.url), { type: "module" });
+    // Without this, a worker that fails to start fails silently.
+    worker.onerror = (event) => {
+      logStep(`Werker-fout: ${event.message || "onbekend"} ${event.filename ?? ""}:${event.lineno ?? ""}`);
+      setMessage("De spraakherkenning kon niet starten. Zie Diagnose onderaan.");
+    };
+    worker.onmessageerror = () => logStep("Werker: bericht kon niet worden gelezen");
     worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
       const data = event.data;
-      if (data.type === "progress") {
+      if (data.type === "result" || data.type === "error") clearTimeout(watchdogRef.current ?? undefined);
+      if (data.type === "log") {
+        logStep(data.message);
+      } else if (data.type === "progress") {
         setProgress((previous) => ({ ...previous, [data.file]: { loaded: data.loaded, total: data.total } }));
       } else if (data.type === "ready") {
         // The worker may have fallen back from WebGPU to WASM.
         activeRef.current.device = data.device;
+        logStep(`Model geladen via ${data.device} in ${(data.loadMs / 1000).toFixed(1)} s`);
         setLoaded({ ...activeRef.current, loadSec: data.loadMs / 1000 });
         setStatus("ready");
       } else if (data.type === "result") {
         const audioSec = pendingRef.current?.audioSec ?? 0;
+        logStep(`Whisper klaar in ${(data.ms / 1000).toFixed(1)} s (${data.text.length} tekens)`);
         setRuns((previous) => [
           { ...activeRef.current, audioSec, processSec: data.ms / 1000, text: data.text },
           ...previous,
         ]);
         setStatus("ready");
       } else if (data.type === "warning") {
+        logStep(data.message);
         setMessage(data.message);
       } else if (data.type === "error") {
+        logStep(`Fout uit werker: ${data.message}`);
         setMessage(`Fout: ${data.message}`);
         setStatus((previous) => (previous === "processing" ? "ready" : "idle"));
       }
@@ -87,6 +105,7 @@ export default function FeasibilityTest() {
     setStatus("loading");
     activeRef.current = { model: model.split("/")[1], device };
     setLoaded(null);
+    logStep(`Model laden: ${model.split("/")[1]} via ${device}`);
     send({ type: "load", model, device });
   }
 
@@ -94,9 +113,11 @@ export default function FeasibilityTest() {
     setMessage(null);
     try {
       recordingRef.current = await startRecording();
+      logStep("Opname gestart");
       setSeconds(0);
       setStatus("recording");
     } catch (error) {
+      logStep(`Microfoon-fout: ${String(error)}`);
       setMessage(`Microfoon niet beschikbaar: ${String(error)}`);
     }
   }
@@ -107,10 +128,19 @@ export default function FeasibilityTest() {
     recordingRef.current = null;
     setStatus("processing");
     try {
-      const audio = await toWhisperAudio(await recording.stop());
+      const blob = await recording.stop();
+      logStep(`Opname gestopt: ${(blob.size / 1000).toFixed(0)} kB, ${blob.type || "onbekend formaat"}`);
+      const audio = await toWhisperAudio(blob);
+      logStep(`Audio omgezet: ${(audio.length / WHISPER_SAMPLE_RATE).toFixed(1)} s op 16 kHz`);
       pendingRef.current = { audioSec: audio.length / WHISPER_SAMPLE_RATE };
       send({ type: "transcribe", audio }, [audio.buffer]);
+      logStep("Naar Whisper gestuurd");
+      watchdogRef.current = setTimeout(
+        () => logStep(`Na ${WHISPER_TIMEOUT_MS / 1000} s nog geen antwoord van Whisper`),
+        WHISPER_TIMEOUT_MS,
+      );
     } catch (error) {
+      logStep(`Omzetten mislukt: ${String(error)}`);
       setMessage(`Audio kon niet worden omgezet: ${String(error)}`);
       setStatus("ready");
     }
@@ -219,6 +249,8 @@ export default function FeasibilityTest() {
           ))}
         </section>
       )}
+
+      <Diagnostics />
     </main>
   );
 }

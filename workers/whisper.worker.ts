@@ -30,6 +30,9 @@ env.backends.onnx.wasm!.wasmPaths = {
 
 let transcriber: AutomaticSpeechRecognitionPipeline | null = null;
 
+// Diagnostics: if this line never appears in the log, the worker did not start.
+post({ type: "log", message: `Werker gestart (WebGPU: ${"gpu" in navigator ? "ja" : "nee"})` });
+
 async function load(model: string, device: "webgpu" | "wasm") {
   const started = performance.now();
   transcriber = null;
@@ -60,6 +63,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     } else if (message.type === "transcribe") {
       if (!transcriber) throw new Error("Model is nog niet geladen");
       const started = performance.now();
+      post({ type: "log", message: `Whisper begint (${(message.audio.length / 16000).toFixed(1)} s audio)` });
       const output = await transcriber(message.audio, {
         language: "dutch",
         task: "transcribe",

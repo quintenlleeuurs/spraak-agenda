@@ -11,4 +11,5 @@ export type WorkerResponse =
   | { type: "ready"; device: WhisperDevice; loadMs: number }
   | { type: "result"; text: string; ms: number }
   | { type: "warning"; message: string }
+  | { type: "log"; message: string } // diagnostics only, never contains transcripts
   | { type: "error"; message: string };
